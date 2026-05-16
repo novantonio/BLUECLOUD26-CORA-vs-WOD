@@ -274,6 +274,98 @@ def plot_cora_doy(cora: pd.DataFrame,
     return fig
 
 
+def plot_wod_monthly(wod: pd.DataFrame,
+                     latitude: float, longitude: float) -> plt.Figure:
+    """
+    WOD monthly mean ± std — surface layer (DEPTH ≤ 10 m).
+    Same treatment as plot_cora_monthly but using WOD raw observations.
+    """
+    surf = wod[wod["DEPTH"] <= 10].copy()
+    surf["m"] = pd.to_datetime(surf["TIME"], errors="coerce").dt.month
+    monthly   = surf.groupby("m")["TEMPERATURE"].agg(["mean", "std"]).reset_index()
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    if monthly.empty:
+        ax.text(0.5, 0.5, "No surface WOD data (depth ≤ 10 m)",
+                ha="center", va="center", transform=ax.transAxes, color="grey")
+    else:
+        ax.fill_between(monthly["m"],
+                        monthly["mean"] - monthly["std"],
+                        monthly["mean"] + monthly["std"],
+                        alpha=0.2, color="seagreen", label="± 1 std")
+        ax.plot(monthly["m"], monthly["mean"], "o-",
+                color="seagreen", lw=2, ms=6, label="Monthly mean")
+        ax.plot(monthly["m"],
+                monthly["mean"].rolling(3, center=True).mean(),
+                "--", color="darkgreen", lw=1.2, alpha=0.6, label="3-month smooth")
+
+    ax.set_xticks(range(1, 13))
+    ax.set_xticklabels(MONTH_LABELS, fontsize=8)
+    ax.set_xlabel("Month")
+    ax.set_ylabel("Temperature (°C)")
+    ax.set_title(
+        f"WOD Monthly Mean ± Std (depth ≤ 10 m)\n"
+        f"({latitude:.4f}°N, {longitude:.4f}°E) · 1970–2023",
+        fontsize=10,
+    )
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
+def plot_wod_doy(wod: pd.DataFrame,
+                 latitude: float, longitude: float) -> plt.Figure:
+    """
+    WOD DOY scatter coloured by year + daily median — surface layer (DEPTH ≤ 10 m).
+    Same treatment as plot_cora_doy but using WOD raw observations.
+    """
+    surf       = wod[wod["DEPTH"] <= 10].copy()
+    surf["time"] = pd.to_datetime(surf["TIME"], errors="coerce")
+    surf = surf.dropna(subset=["time"])
+
+    fig, ax = plt.subplots(figsize=(8, 5))
+
+    if surf.empty:
+        ax.text(0.5, 0.5, "No surface WOD data (depth ≤ 10 m)",
+                ha="center", va="center", transform=ax.transAxes, color="grey")
+        ax.set_title("WOD Interannual Temperature Variability (surface)", fontsize=10)
+        fig.tight_layout()
+        return fig
+
+    years   = sorted(surf["time"].dt.year.unique())
+    colours = cm.plasma(np.linspace(0, 1, len(years)))
+
+    for colour, (_, ydata) in zip(colours, surf.groupby(surf["time"].dt.year)):
+        doy = ydata["time"].dt.dayofyear
+        ax.scatter(doy, ydata["TEMPERATURE"], s=8, color=colour, alpha=0.55)
+
+    surf["doy"] = surf["time"].dt.dayofyear
+    doy_med     = surf.groupby("doy")["TEMPERATURE"].median()
+    ax.plot(doy_med.index, doy_med.values,
+            color="crimson", lw=2, zorder=5, label="Daily median")
+
+    sm = plt.cm.ScalarMappable(
+        cmap="plasma",
+        norm=plt.Normalize(vmin=min(years), vmax=max(years)),
+    )
+    sm.set_array([])
+    fig.colorbar(sm, ax=ax, pad=0.02, label="Year")
+
+    ax.set_xlabel("Day of Year")
+    ax.set_ylabel("Temperature (°C)")
+    ax.set_title(
+        f"WOD Interannual Temperature Variability (depth ≤ 10 m)\n"
+        f"({latitude:.4f}°N, {longitude:.4f}°E)",
+        fontsize=10,
+    )
+    ax.legend(fontsize=8)
+    ax.grid(True, alpha=0.3)
+    fig.tight_layout()
+    return fig
+
+
 def plot_wod_scatter(raw_full: pd.DataFrame, max_depth: float,
                      latitude: float, longitude: float) -> plt.Figure:
     """
@@ -545,60 +637,220 @@ if "results" in st.session_state:
         c4.metric("WOD depth range",
                   f"{wod_clipped['DEPTH'].min():.0f}–{wod_clipped['DEPTH'].max():.0f} m")
 
-    st.divider()
-
-    # ── Row 1: CORA surface climatology ──────────────────────────────────────
-    st.markdown("<div class='section-hdr'>🌡️ CORA Surface Climatology</div>",
-                unsafe_allow_html=True)
-
-    if cora_surf is not None:
-        col_l, col_r = st.columns(2)
-        with col_l:
-            fig_mon = plot_cora_monthly(cora_surf, rlat, rlon)
-            st.pyplot(fig_mon)
-            plt.close(fig_mon)
-        with col_r:
-            fig_doy = plot_cora_doy(cora_surf, rlat, rlon)
-            st.pyplot(fig_doy)
-            plt.close(fig_doy)
-    else:
-        st.warning("CORA surface data not available for this location.")
-
-    st.divider()
-
-    # ── Row 2: WOD scatter | CORA depth profile ───────────────────────────────
-    st.markdown(
-        f"<div class='section-hdr'>🔵 Depth Profiles — 0 – {max_depth} m</div>",
-        unsafe_allow_html=True,
-    )
+    # ── 3 × 2 figure: all six panels ─────────────────────────────────────────
     st.caption(
-        "ℹ️ Move the **Max depth** slider in the sidebar to update both plots "
+        "ℹ️ Move the **Max depth** slider in the sidebar to update the bottom row "
         "without re-running the full analysis."
     )
 
-    col_l2, col_r2 = st.columns(2)
+    fig, axes = plt.subplots(
+        3, 2,
+        figsize=(18, 18),
+        gridspec_kw={"hspace": 0.42, "wspace": 0.30},
+    )
+    ax_cm, ax_cd = axes[0, 0], axes[0, 1]   # Row 1 — CORA surface
+    ax_wm, ax_wd = axes[1, 0], axes[1, 1]   # Row 2 — WOD surface
+    ax_ws, ax_cp = axes[2, 0], axes[2, 1]   # Row 3 — depth profiles
 
-    with col_l2:
-        if wod_raw is not None and not wod_raw.empty:
-            fig_sc = plot_wod_scatter(wod_raw, max_depth, rlat, rlon)
-            st.pyplot(fig_sc)
-            plt.close(fig_sc)
-        else:
-            st.warning(
-                "No WOD data found within ±0.5° of this point. "
-                "Try a different location."
-            )
+    # ── helper: blank panel with message ──────────────────────────────────────
+    def _blank(ax: plt.Axes, msg: str) -> None:
+        ax.text(0.5, 0.5, msg, ha="center", va="center",
+                transform=ax.transAxes, color="grey", fontsize=10)
+        ax.set_xticks([])
+        ax.set_yticks([])
 
-    with col_r2:
-        if cora_dp is not None and not cora_dp.empty:
-            fig_dp = plot_cora_depth_profile(cora_dp, max_depth, rlat, rlon)
-            st.pyplot(fig_dp)
-            plt.close(fig_dp)
+    # ── Row 1 — CORA surface ──────────────────────────────────────────────────
+    if cora_surf is not None and not cora_surf.empty:
+        # [0,0] CORA monthly mean ± std
+        cs     = cora_surf.copy()
+        cs["m"] = cs["time"].dt.month
+        cmon   = cs.groupby("m")["TEMP"].agg(["mean", "std"]).reset_index()
+
+        ax_cm.fill_between(cmon["m"],
+                           cmon["mean"] - cmon["std"],
+                           cmon["mean"] + cmon["std"],
+                           alpha=0.2, color="steelblue", label="± 1 std")
+        ax_cm.plot(cmon["m"], cmon["mean"], "o-",
+                   color="steelblue", lw=2, ms=5, label="Monthly mean")
+        ax_cm.plot(cmon["m"], cmon["mean"].rolling(3, center=True).mean(),
+                   "--", color="navy", lw=1.2, alpha=0.6, label="3-month smooth")
+        ax_cm.set_xticks(range(1, 13))
+        ax_cm.set_xticklabels(MONTH_LABELS, fontsize=7)
+        ax_cm.set_xlabel("Month")
+        ax_cm.set_ylabel("Temperature (°C)")
+        ax_cm.set_title(
+            f"CORA Monthly Mean ± Std (surface)\n"
+            f"({rlat:.4f}°N, {rlon:.4f}°E) · 1990–2023", fontsize=9)
+        ax_cm.legend(fontsize=7)
+        ax_cm.grid(True, alpha=0.3)
+
+        # [0,1] CORA DOY scatter
+        years_c   = sorted(cora_surf["time"].dt.year.unique())
+        colours_c = cm.viridis(np.linspace(0, 1, len(years_c)))
+        for col_c, (_, ydata) in zip(colours_c,
+                                     cora_surf.groupby(cora_surf["time"].dt.year)):
+            ax_cd.scatter(ydata["time"].dt.dayofyear, ydata["TEMP"],
+                          s=6, color=col_c, alpha=0.5)
+        cs2 = cora_surf.copy()
+        cs2["doy"] = cs2["time"].dt.dayofyear
+        doy_med_c  = cs2.groupby("doy")["TEMP"].median()
+        ax_cd.plot(doy_med_c.index, doy_med_c.values,
+                   color="crimson", lw=2, zorder=5, label="Daily median")
+        sm_c = plt.cm.ScalarMappable(
+            cmap="viridis",
+            norm=plt.Normalize(vmin=min(years_c), vmax=max(years_c)))
+        sm_c.set_array([])
+        fig.colorbar(sm_c, ax=ax_cd, pad=0.02, label="Year")
+        ax_cd.set_xlabel("Day of Year")
+        ax_cd.set_ylabel("Temperature (°C)")
+        ax_cd.set_title(
+            f"CORA Interannual Variability (surface)\n"
+            f"({rlat:.4f}°N, {rlon:.4f}°E)", fontsize=9)
+        ax_cd.legend(fontsize=7)
+        ax_cd.grid(True, alpha=0.3)
+    else:
+        _blank(ax_cm, "CORA surface data not available")
+        _blank(ax_cd, "CORA surface data not available")
+
+    # ── Row 2 — WOD surface (depth ≤ 10 m) ───────────────────────────────────
+    if wod_raw is not None and not wod_raw.empty:
+        surf_wod        = wod_raw[wod_raw["DEPTH"] <= 10].copy()
+        surf_wod["time"] = pd.to_datetime(surf_wod["TIME"], errors="coerce")
+        surf_wod = surf_wod.dropna(subset=["time", "TEMPERATURE"])
+
+        # [1,0] WOD monthly mean ± std
+        surf_wod["m"] = surf_wod["time"].dt.month
+        wmon = surf_wod.groupby("m")["TEMPERATURE"].agg(["mean", "std"]).reset_index()
+
+        if not wmon.empty:
+            ax_wm.fill_between(wmon["m"],
+                               wmon["mean"] - wmon["std"],
+                               wmon["mean"] + wmon["std"],
+                               alpha=0.2, color="seagreen", label="± 1 std")
+            ax_wm.plot(wmon["m"], wmon["mean"], "o-",
+                       color="seagreen", lw=2, ms=5, label="Monthly mean")
+            ax_wm.plot(wmon["m"], wmon["mean"].rolling(3, center=True).mean(),
+                       "--", color="darkgreen", lw=1.2, alpha=0.6,
+                       label="3-month smooth")
         else:
-            st.warning(
-                f"CORA depth profile not available for this location "
-                f"down to {max_depth} m."
+            _blank(ax_wm, "No surface WOD data (depth ≤ 10 m)")
+
+        ax_wm.set_xticks(range(1, 13))
+        ax_wm.set_xticklabels(MONTH_LABELS, fontsize=7)
+        ax_wm.set_xlabel("Month")
+        ax_wm.set_ylabel("Temperature (°C)")
+        ax_wm.set_title(
+            f"WOD Monthly Mean ± Std (depth ≤ 10 m)\n"
+            f"({rlat:.4f}°N, {rlon:.4f}°E) · 1970–2023", fontsize=9)
+        ax_wm.legend(fontsize=7)
+        ax_wm.grid(True, alpha=0.3)
+
+        # [1,1] WOD DOY scatter
+        if not surf_wod.empty:
+            years_w   = sorted(surf_wod["time"].dt.year.unique())
+            colours_w = cm.plasma(np.linspace(0, 1, len(years_w)))
+            for col_w, (_, ydata) in zip(colours_w,
+                                         surf_wod.groupby(surf_wod["time"].dt.year)):
+                ax_wd.scatter(ydata["time"].dt.dayofyear, ydata["TEMPERATURE"],
+                              s=6, color=col_w, alpha=0.5)
+            surf_wod["doy"] = surf_wod["time"].dt.dayofyear
+            doy_med_w = surf_wod.groupby("doy")["TEMPERATURE"].median()
+            ax_wd.plot(doy_med_w.index, doy_med_w.values,
+                       color="crimson", lw=2, zorder=5, label="Daily median")
+            sm_w = plt.cm.ScalarMappable(
+                cmap="plasma",
+                norm=plt.Normalize(vmin=min(years_w), vmax=max(years_w)))
+            sm_w.set_array([])
+            fig.colorbar(sm_w, ax=ax_wd, pad=0.02, label="Year")
+        else:
+            _blank(ax_wd, "No surface WOD data (depth ≤ 10 m)")
+
+        ax_wd.set_xlabel("Day of Year")
+        ax_wd.set_ylabel("Temperature (°C)")
+        ax_wd.set_title(
+            f"WOD Interannual Variability (depth ≤ 10 m)\n"
+            f"({rlat:.4f}°N, {rlon:.4f}°E)", fontsize=9)
+        ax_wd.legend(fontsize=7)
+        ax_wd.grid(True, alpha=0.3)
+    else:
+        _blank(ax_wm, "WOD data not available")
+        _blank(ax_wd, "WOD data not available")
+
+    # ── Row 3 — Depth profiles (reactive to slider) ───────────────────────────
+    # [2,0] WOD T–depth scatter
+    if wod_raw is not None and not wod_raw.empty:
+        raw_clip = wod_raw[wod_raw["DEPTH"] <= max_depth].copy()
+        MAX_PTS  = 8_000
+        plot_df  = (raw_clip.sample(min(MAX_PTS, len(raw_clip)), random_state=42)
+                    if len(raw_clip) > 0 else raw_clip)
+        if not plot_df.empty:
+            sc = ax_ws.scatter(
+                plot_df["TEMPERATURE"], plot_df["DEPTH"],
+                c=plot_df["DEPTH"], cmap="Blues_r",
+                s=4, alpha=0.4, vmin=0, vmax=max_depth,
             )
+            fig.colorbar(sc, ax=ax_ws, label="Depth (m)", pad=0.02)
+        else:
+            _blank(ax_ws, "No WOD data in depth range")
+        ax_ws.set_xlabel("Temperature (°C)")
+        ax_ws.set_ylabel("Depth (m)")
+        ax_ws.invert_yaxis()
+        ax_ws.set_ylim(bottom=max_depth, top=0)
+        ax_ws.set_title(
+            f"WOD T–Depth Observations\n({rlat:.4f}°N, {rlon:.4f}°E)\n"
+            f"n = {len(raw_clip):,} · 0 – {max_depth:.0f} m", fontsize=9)
+        ax_ws.grid(True, alpha=0.3)
+    else:
+        _blank(ax_ws, "WOD data not available")
+
+    # [2,1] CORA T–depth profile
+    if cora_dp is not None and not cora_dp.empty and "depth" in cora_dp.columns:
+        profile = (
+            cora_dp.groupby("depth")["TEMP"]
+            .agg(["mean", "std", "median"])
+            .reset_index()
+            .sort_values("depth")
+        )
+        ax_cp.fill_betweenx(
+            profile["depth"],
+            profile["mean"] - profile["std"],
+            profile["mean"] + profile["std"],
+            alpha=0.18, color="steelblue", label="± 1 std")
+        ax_cp.plot(profile["mean"] - profile["std"], profile["depth"],
+                   "--", color="royalblue", lw=1.2, alpha=0.7, label="Mean − std")
+        ax_cp.plot(profile["mean"] + profile["std"], profile["depth"],
+                   "--", color="tomato",    lw=1.2, alpha=0.7, label="Mean + std")
+        ax_cp.plot(profile["mean"],   profile["depth"],
+                   "-",  color="steelblue", lw=2.5, label="Mean")
+        ax_cp.plot(profile["median"], profile["depth"],
+                   ":",  color="darkorange", lw=1.8, label="Median")
+        ax_cp.set_xlabel("Temperature (°C)")
+        ax_cp.set_ylabel("Depth (m)")
+        ax_cp.invert_yaxis()
+        ax_cp.set_ylim(bottom=max_depth, top=0)
+        ax_cp.set_title(
+            f"CORA T–Depth Profile\n({rlat:.4f}°N, {rlon:.4f}°E)\n"
+            f"0 – {max_depth:.0f} m · 1990–2023", fontsize=9)
+        ax_cp.legend(fontsize=7)
+        ax_cp.grid(True, alpha=0.3)
+    else:
+        _blank(ax_cp, f"CORA depth profile not available\ndown to {max_depth} m")
+
+    # Row labels on the left edge
+    for ax, label in [
+        (ax_cm, "CORA surface"),
+        (ax_wm, "WOD surface\n(depth ≤ 10 m)"),
+        (ax_ws, f"Depth profiles\n(0 – {max_depth} m)"),
+    ]:
+        ax.annotate(
+            label,
+            xy=(-0.18, 0.5), xycoords="axes fraction",
+            fontsize=8, fontweight="bold", color="#00A6D6",
+            ha="center", va="center", rotation=90,
+        )
+
+    st.pyplot(fig)
+    plt.close(fig)
 
     # ── Footer ────────────────────────────────────────────────────────────────
     st.divider()
