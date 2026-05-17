@@ -1073,18 +1073,18 @@ if "results" in st.session_state:
         ax_ws.legend(fontsize=7, loc="lower right")
         ax_ws.grid(True, alpha=0.3)
  
-    # Row labels on the left edge
-    for ax, label in [
-        (ax_cm, "CORA surface"),
-        (ax_wm, "WOD surface\n(depth ≤ 10 m)"),
-        (ax_ws, f"Depth profiles\n(0 – {max_depth} m)"),
-    ]:
-        ax.annotate(
-            label,
-            xy=(-0.06, 0.5), xycoords="axes fraction",
-            fontsize=8, fontweight="bold", color="#00A6D6",
-            ha="center", va="center", rotation=90,
-        )
+      # Row labels on the left edge
+      for ax, label in [
+          (ax_cm, "CORA surface"),
+          (ax_wm, "WOD surface\n(depth ≤ 10 m)"),
+          (ax_ws, f"Depth profiles\n(0 – {max_depth} m)"),
+      ]:
+          ax.annotate(
+              label,
+              xy=(-0.06, 0.5), xycoords="axes fraction",
+              fontsize=8, fontweight="bold", color="#00A6D6",
+              ha="center", va="center", rotation=90,
+          )
  
     # ── [1,0] CORA TIME vs DEPTH scatter, colour = TEMP ───────────────────────
     if has_cora_dp:
