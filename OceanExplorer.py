@@ -1046,28 +1046,67 @@ if "results" in st.session_state:
 
     # ── [1,0] CORA TIME × DEPTH scatter, colour = TEMP (rainbow) ─────────────
     if has_cora_dp:
-        cora_plot = cora_dp.dropna(subset=["time", "depth", "TEMP"]).copy()
-        if not cora_plot.empty:
-            t_min_c = cora_plot["TEMP"].min()
-            t_max_c = cora_plot["TEMP"].max()
-            sc_ct   = ax_ct.scatter(
-                cora_plot["time"], cora_plot["depth"],
-                c=cora_plot["TEMP"], cmap="rainbow",
-                s=3, alpha=0.5, vmin=t_min_c, vmax=t_max_c,
+
+        cora_plot = cora_dp.dropna(
+            subset=["time", "depth", "TEMP"]
+        ).copy()
+
+        # ── Monthly averages ──────────────────────────────────────────────
+        cora_plot["year_month"] = (
+            cora_plot["time"]
+            .dt.to_period("M")
+            .dt.to_timestamp()
+        )
+
+        cora_monthly = (
+            cora_plot
+            .groupby(["year_month", "depth"])["TEMP"]
+            .mean()
+            .reset_index()
+        )
+
+        if not cora_monthly.empty:
+
+            t_min_c = cora_monthly["TEMP"].min()
+            t_max_c = cora_monthly["TEMP"].max()
+
+            sc_ct = ax_ct.scatter(
+                cora_monthly["year_month"],
+                cora_monthly["depth"],
+                c=cora_monthly["TEMP"],
+                cmap="rainbow",
+                s=10,
+                alpha=0.7,
+                vmin=t_min_c,
+                vmax=t_max_c,
             )
+
             cb_ct = fig2.colorbar(sc_ct, ax=ax_ct, pad=0.02)
             cb_ct.set_label("Temperature (°C)", fontsize=8)
+
         else:
-            _blank(ax_ct, "CORA depth data empty")
+            _blank(ax_ct, "No CORA monthly depth data")
+
         ax_ct.set_xlabel("Time")
         ax_ct.set_ylabel("Depth (m)")
+
         ax_ct.invert_yaxis()
         ax_ct.set_ylim(bottom=max_depth, top=0)
+
         ax_ct.set_title(
-            f"CORA — Temperature (TIME × DEPTH)\n"
-            f"({rlat:.4f}°N, {rlon:.4f}°E) · 0 – {max_depth:.0f} m", fontsize=9)
-        ax_ct.tick_params(axis="x", rotation=25, labelsize=7)
+            f"CORA Monthly Mean Temperature (TIME × DEPTH)\n"
+            f"({rlat:.4f}°N, {rlon:.4f}°E) · 0 – {max_depth:.0f} m",
+            fontsize=9
+        )
+
+        ax_ct.tick_params(
+            axis="x",
+            rotation=25,
+            labelsize=7
+        )
+
         ax_ct.grid(True, alpha=0.2)
+
     else:
         _blank(ax_ct, "CORA depth data not available")
 
