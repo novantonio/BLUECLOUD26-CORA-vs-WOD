@@ -1,7 +1,7 @@
 """
 ocean_explorer.py
 ─────────────────
-CS-MACH1 — Ocean Climate Explorer
+CS-MACH1 — Ocean Temperature Climate Explorer
 
 Layout
 ──────
@@ -44,7 +44,7 @@ warnings.filterwarnings("ignore", message="Unverified HTTPS request")
 # ── Page config & branding ────────────────────────────────────────────────────
 
 st.set_page_config(
-    page_title="CS-MACH1 Ocean Climate Explorer",
+    page_title="CS-MACH1 Ocean Temperature Climate Explorer",
     page_icon="🌊",
     layout="wide",
 )
@@ -62,7 +62,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-st.markdown("<div class='main-title'>🌊 CS-MACH1 — Ocean Climate Explorer</div>",
+st.markdown("<div class='main-title'>🌊 CS-MACH1 — Ocean Temperature Climate Explorer</div>",
             unsafe_allow_html=True)
 st.markdown(
     "<div class='sub-title'>"
@@ -113,17 +113,17 @@ def _wod_client():
 @st.cache_data(show_spinner="Querying World Ocean Database…", ttl=3600)
 def fetch_wod_all(latitude: float, longitude: float) -> pd.DataFrame | None:
     """
-    Fetch ALL WOD profiles within ±0.5° with no depth filter (0–10 000 m).
+    Fetch ALL WOD profiles within ±0.1° with no depth filter (0–10 000 m).
     Cached by lat/lon only so depth changes don't trigger a new API call.
 
     Returns raw DataFrame with columns: DEPTH, TEMPERATURE, TIME, LATITUDE, LONGITUDE.
     """
     try:
         client  = _wod_client()
-        lat_min = round(latitude,  1) - 0.5
-        lat_max = round(latitude,  1) + 0.5
-        lon_min = round(longitude, 1) - 0.5
-        lon_max = round(longitude, 1) + 0.5
+        lat_min = round(latitude,  1) - 0.1
+        lat_max = round(latitude,  1) + 0.1
+        lon_min = round(longitude, 1) - 0.1
+        lon_max = round(longitude, 1) + 0.1
 
         qb = client.query()
         qb.add_select_column("wod_unique_cast")
@@ -217,6 +217,9 @@ def plot_cora_monthly(cora: pd.DataFrame,
                     alpha=0.2, color="steelblue", label="± 1 std")
     ax.plot(monthly["m"], monthly["mean"], "o-",
             color="steelblue", lw=2, ms=6, label="Monthly mean")
+    ax.plot(monthly["m"],
+            monthly["mean"].rolling(3, center=True).mean(),
+            "--", color="navy", lw=1.2, alpha=0.6, label="3-month smooth")
 
     ax.set_xticks(range(1, 13))
     ax.set_xticklabels(MONTH_LABELS, fontsize=8)
@@ -293,6 +296,9 @@ def plot_wod_monthly(wod: pd.DataFrame,
                         alpha=0.2, color="seagreen", label="± 1 std")
         ax.plot(monthly["m"], monthly["mean"], "o-",
                 color="seagreen", lw=2, ms=6, label="Monthly mean")
+        ax.plot(monthly["m"],
+                monthly["mean"].rolling(3, center=True).mean(),
+                "--", color="darkgreen", lw=1.2, alpha=0.6, label="3-month smooth")
 
     ax.set_xticks(range(1, 13))
     ax.set_xticklabels(MONTH_LABELS, fontsize=8)
@@ -498,7 +504,7 @@ with st.sidebar:
         "Data sources\n"
         "• **CORA**: EMODnet-Physics ERDDAP (1990–2023)\n"
         "• **WOD**: Beacon API / MARIS (1970–2023)\n"
-        "• WOD search box: ±0.5° around selected point\n\n"
+        "• WOD search box: ±0.1° around selected point\n\n"
         "**Depth slider** reactively updates\n"
         "the WOD scatter and CORA depth profile\n"
         "without re-running the full analysis."
@@ -531,7 +537,16 @@ folium.TileLayer(
     show=True,
 ).add_to(m)
 
-# 2. EMODnet Bathymetry WMTS — mean depth, multi-colour style (Web Mercator)
+# 2. ESRI — mean depth, multi-colour style (Web Mercator)
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}",
+    attr="Esri",
+    name="Esri Ocean",
+    overlay=False,
+    control=True,
+).add_to(m)
+
+# 3. EMODnet Bathymetry WMTS — mean depth, multi-colour style (Web Mercator)
 #    Tile URL pattern for WMTS in slippy-map convention
 folium.TileLayer(
     tiles=(
@@ -549,7 +564,7 @@ folium.TileLayer(
     opacity=0.85,
 ).add_to(m)
 
-# 3. EMODnet Bathymetry WMTS — rainbow colour ramp
+# 4. EMODnet Bathymetry WMTS — rainbow colour ramp
 folium.TileLayer(
     tiles=(
         "https://tiles.emodnet-bathymetry.eu/wmts/1.0.0/"
@@ -568,7 +583,7 @@ folium.TileLayer(
 
 # ── Overlay layers ────────────────────────────────────────────────────────────
 
-# 4. EMODnet Bathymetry WMS — bathymetric contours (isobaths)
+# 5. EMODnet Bathymetry WMS — bathymetric contours (isobaths)
 folium.WmsTileLayer(
     url="https://ows.emodnet-bathymetry.eu/wms",
     layers="emodnet:contours",
@@ -586,7 +601,7 @@ folium.WmsTileLayer(
     opacity=0.7,
 ).add_to(m)
 
-# 5. EMODnet Bathymetry WMS — mean depth DTM (semi-transparent overlay)
+# 6. EMODnet Bathymetry WMS — mean depth DTM (semi-transparent overlay)
 folium.WmsTileLayer(
     url="https://ows.emodnet-bathymetry.eu/wms",
     layers="emodnet:mean_multicolour",
@@ -611,10 +626,10 @@ folium.Marker(
 ).add_to(m)
 
 folium.Rectangle(
-    bounds=[[center_lat - 0.5, center_lon - 0.5],
-            [center_lat + 0.5, center_lon + 0.5]],
+    bounds=[[center_lat - 0.1, center_lon - 0.1],
+            [center_lat + 0.1, center_lon + 0.1]],
     color="#00A6D6", weight=1.5, fill=True, fill_opacity=0.08,
-    tooltip="WOD search box (±0.5°)",
+    tooltip="WOD search box (±0.1°)",
 ).add_to(m)
 
 folium.LayerControl().add_to(m)
@@ -745,6 +760,8 @@ if "results" in st.session_state:
                            alpha=0.2, color="steelblue", label="± 1 std")
         ax_cm.plot(cmon["m"], cmon["mean"], "o-",
                    color="steelblue", lw=2, ms=5, label="Monthly mean")
+  #      ax_cm.plot(cmon["m"], cmon["mean"].rolling(3, center=True).mean(),
+  #                 "--", color="navy", lw=1.2, alpha=0.6, label="3-month smooth")
         ax_cm.set_xticks(range(1, 13))
         ax_cm.set_xticklabels(MONTH_LABELS, fontsize=7)
         ax_cm.set_xlabel("Month")
@@ -800,6 +817,9 @@ if "results" in st.session_state:
                                alpha=0.2, color="seagreen", label="± 1 std")
             ax_wm.plot(wmon["m"], wmon["mean"], "o-",
                        color="seagreen", lw=2, ms=5, label="Monthly mean")
+  #          ax_wm.plot(wmon["m"], wmon["mean"].rolling(3, center=True).mean(),
+  #                     "--", color="darkgreen", lw=1.2, alpha=0.6,
+  #                     label="3-month smooth")
         else:
             _blank(ax_wm, "No surface WOD data (depth ≤ 10 m)")
 
@@ -920,7 +940,7 @@ if "results" in st.session_state:
     st.pyplot(fig)
     plt.close(fig)
 
-    # ═══════════════════════════════════════════════════════════════════════════
+  # ═══════════════════════════════════════════════════════════════════════════
     # Summary figure — 2 rows × 2 columns
     # [0,0] CORA monthly + WOD monthly overlaid (WOD dashed)
     # [0,1] CORA depth profile + WOD depth profile overlaid (WOD dashed)
@@ -932,7 +952,7 @@ if "results" in st.session_state:
         "<div class='section-hdr'>🔀 CORA vs WOD — Combined View</div>",
         unsafe_allow_html=True,
     )
-
+ 
     fig2, axes2 = plt.subplots(
         2, 2,
         figsize=(18, 14),
@@ -940,11 +960,11 @@ if "results" in st.session_state:
     )
     ax_mon, ax_dep = axes2[0, 0], axes2[0, 1]
     ax_ct,  ax_wt  = axes2[1, 0], axes2[1, 1]
-
+ 
     # ── [0,0] Monthly mean ± std — CORA (solid) + WOD (dashed) ───────────────
     has_cora_mon = cora_surf is not None and not cora_surf.empty
     has_wod_mon  = wod_raw is not None and not wod_raw.empty
-
+ 
     if has_cora_mon:
         cs3 = cora_surf.copy()
         cs3["m"] = cs3["time"].dt.month
@@ -959,7 +979,7 @@ if "results" in st.session_state:
                             cmon3["mean"] - cmon3["std"],
                             cmon3["mean"] + cmon3["std"],
                             alpha=0.10, color="steelblue", label="CORA ± std")
-
+ 
     if has_wod_mon:
         sw3 = wod_raw[wod_raw["DEPTH"] <= 10].copy()
         sw3["time"] = pd.to_datetime(sw3["TIME"], errors="coerce")
@@ -977,7 +997,7 @@ if "results" in st.session_state:
                                 wmon3["mean"] - wmon3["std"],
                                 wmon3["mean"] + wmon3["std"],
                                 alpha=0.08, color="seagreen", label="WOD ± std")
-
+ 
     if not has_cora_mon and not has_wod_mon:
         _blank(ax_mon, "No data available")
     else:
@@ -990,11 +1010,11 @@ if "results" in st.session_state:
             f"({rlat:.4f}°N, {rlon:.4f}°E)", fontsize=9)
         ax_mon.legend(fontsize=7)
         ax_mon.grid(True, alpha=0.3)
-
+ 
     # ── [0,1] T–depth profiles — CORA (solid) + WOD mean (dashed) ────────────
     has_cora_dp = cora_dp is not None and not cora_dp.empty and "depth" in cora_dp.columns
     has_wod_dp  = wod_raw is not None and not wod_raw.empty
-
+ 
     if has_cora_dp:
         prof_c = (cora_dp.groupby("depth")["TEMP"]
                   .agg(["mean", "std"]).reset_index().sort_values("depth"))
@@ -1004,7 +1024,7 @@ if "results" in st.session_state:
                              alpha=0.15, color="steelblue", label="CORA ± std")
         ax_dep.plot(prof_c["mean"], prof_c["depth"],
                     "-", color="steelblue", lw=2.5, label="CORA mean")
-
+ 
     if has_wod_dp:
         wclip = wod_raw[wod_raw["DEPTH"] <= max_depth].copy()
         if not wclip.empty:
@@ -1016,7 +1036,7 @@ if "results" in st.session_state:
                                  alpha=0.12, color="seagreen", label="WOD ± std")
             ax_dep.plot(prof_w["mean"], prof_w["DEPTH"],
                         "--", color="seagreen", lw=2, label="WOD mean")
-
+ 
     if not has_cora_dp and not has_wod_dp:
         _blank(ax_dep, "No depth profile data available")
     else:
@@ -1029,7 +1049,7 @@ if "results" in st.session_state:
             f"({rlat:.4f}°N, {rlon:.4f}°E) · 0 – {max_depth:.0f} m", fontsize=9)
         ax_dep.legend(fontsize=7)
         ax_dep.grid(True, alpha=0.3)
-
+ 
     # ── [1,0] CORA TIME vs DEPTH scatter, colour = TEMP ───────────────────────
     if has_cora_dp:
         # Use the full CORA depth profile DataFrame (time × depth × TEMP)
@@ -1055,7 +1075,7 @@ if "results" in st.session_state:
         ax_ct.grid(True, alpha=0.2)
     else:
         _blank(ax_ct, "CORA depth data not available")
-
+ 
     # ── [1,1] WOD TIME vs DEPTH scatter, colour = TEMP ────────────────────────
     if has_wod_dp:
         wod_plot = wod_raw[wod_raw["DEPTH"] <= max_depth].copy()
@@ -1088,7 +1108,7 @@ if "results" in st.session_state:
         ax_wt.grid(True, alpha=0.2)
     else:
         _blank(ax_wt, "WOD data not available")
-
+ 
     st.pyplot(fig2)
     plt.close(fig2)
 
