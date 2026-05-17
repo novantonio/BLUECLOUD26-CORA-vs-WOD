@@ -947,21 +947,28 @@ if "results" in st.session_state:
     # [1,0] CORA scatter: x = TIME, y = DEPTH, colour = TEMP (rainbow)
     # [1,1] WOD  scatter: x = TIME, y = DEPTH, colour = TEMP (rainbow)
     # ═══════════════════════════════════════════════════════════════════════════
-    st.divider()
+st.divider()
     st.markdown(
         "<div class='section-hdr'>🔀 CORA vs WOD — Combined View</div>",
         unsafe_allow_html=True,
     )
- 
+
     fig2, axes2 = plt.subplots(
-        2, 2,
-        figsize=(18, 14),
+        2, 2, figsize=(18, 14),
         gridspec_kw={"hspace": 0.42, "wspace": 0.32},
     )
     ax_mon, ax_dep = axes2[0, 0], axes2[0, 1]
     ax_ct,  ax_wt  = axes2[1, 0], axes2[1, 1]
- 
-    # ── [0,0] Monthly mean ± std — CORA (solid) + WOD (dashed) ───────────────
+
+    # re-evaluate availability flags (may not exist if fig1 section was skipped)
+    has_cora_mon = cora_surf is not None and not cora_surf.empty
+    has_wod_mon  = wod_raw  is not None and not wod_raw.empty
+    has_wod_dp   = wod_raw  is not None and not wod_raw.empty
+    has_cora_dp  = (cora_dp is not None
+                    and not cora_dp.empty
+                    and "depth" in cora_dp.columns)
+
+    # ── [0,0] Monthly — CORA (solid) + WOD (dashed) ───────────────────────────
     if has_cora_mon:
         cs3     = cora_surf.copy()
         cs3["m"] = cs3["time"].dt.month
@@ -972,7 +979,7 @@ if "results" in st.session_state:
                             alpha=0.15, color="steelblue", label="CORA ± std")
         ax_mon.plot(cmon3["m"], cmon3["mean"], "o-",
                     color="steelblue", lw=2, ms=5, label="CORA mean")
- 
+
     if has_wod_mon:
         sw3          = wod_raw[wod_raw["DEPTH"] <= 10].copy()
         sw3["time"]  = pd.to_datetime(sw3["TIME"], errors="coerce")
@@ -987,7 +994,7 @@ if "results" in st.session_state:
             ax_mon.plot(wmon3["m"], wmon3["mean"], "s--",
                         color="seagreen", lw=2, ms=5,
                         label="WOD mean (depth ≤ 10 m)")
- 
+
     if not has_cora_mon and not has_wod_mon:
         _blank(ax_mon, "No data available")
     else:
@@ -1000,7 +1007,7 @@ if "results" in st.session_state:
             f"({rlat:.4f}°N, {rlon:.4f}°E)", fontsize=9)
         ax_mon.legend(fontsize=7)
         ax_mon.grid(True, alpha=0.3)
- 
+
     # ── [0,1] T–depth — CORA (solid) + WOD (dashed) ──────────────────────────
     if has_cora_dp:
         prof_c = (cora_dp.groupby("depth")["TEMP"]
@@ -1011,7 +1018,7 @@ if "results" in st.session_state:
                              alpha=0.15, color="steelblue", label="CORA ± std")
         ax_dep.plot(prof_c["mean"], prof_c["depth"],
                     "-", color="steelblue", lw=2.5, label="CORA mean")
- 
+
     if has_wod_dp:
         wclip = wod_raw[wod_raw["DEPTH"] <= max_depth].copy()
         if not wclip.empty:
@@ -1023,7 +1030,7 @@ if "results" in st.session_state:
                                  alpha=0.12, color="seagreen", label="WOD ± std")
             ax_dep.plot(prof_w["mean"], prof_w["DEPTH"],
                         "--", color="seagreen", lw=2, label="WOD mean")
- 
+
     if not has_cora_dp and not has_wod_dp:
         _blank(ax_dep, "No depth profile data available")
     else:
@@ -1036,7 +1043,7 @@ if "results" in st.session_state:
             f"({rlat:.4f}°N, {rlon:.4f}°E) · 0 – {max_depth:.0f} m", fontsize=9)
         ax_dep.legend(fontsize=7)
         ax_dep.grid(True, alpha=0.3)
- 
+
     # ── [1,0] CORA TIME × DEPTH scatter, colour = TEMP (rainbow) ─────────────
     if has_cora_dp:
         cora_plot = cora_dp.dropna(subset=["time", "depth", "TEMP"]).copy()
@@ -1063,7 +1070,7 @@ if "results" in st.session_state:
         ax_ct.grid(True, alpha=0.2)
     else:
         _blank(ax_ct, "CORA depth data not available")
- 
+
     # ── [1,1] WOD TIME × DEPTH scatter, colour = TEMP (rainbow) ──────────────
     if has_wod_dp:
         wod_plot        = wod_raw[wod_raw["DEPTH"] <= max_depth].copy()
@@ -1095,7 +1102,7 @@ if "results" in st.session_state:
         ax_wt.grid(True, alpha=0.2)
     else:
         _blank(ax_wt, "WOD data not available")
- 
+
     st.pyplot(fig2)
     plt.close(fig2)
 
