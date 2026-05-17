@@ -1176,6 +1176,201 @@ if "results" in st.session_state:
     st.pyplot(fig2)
     plt.close(fig2)
 
+    # ════════════════════════════════════════════════════════════════════════
+    # Monthly climatological Hovmöller diagrams
+    # [0,0] CORA monthly climatology
+    # [0,1] WOD  monthly climatology
+    # ════════════════════════════════════════════════════════════════════════
+
+    st.divider()
+
+    st.markdown(
+        "<div class='section-hdr'>🌡️ Monthly Climatological Hovmöller Diagrams</div>",
+        unsafe_allow_html=True,
+    )
+
+    fig3, axes3 = plt.subplots(
+        1, 2,
+        figsize=(18, 7),
+        gridspec_kw={"wspace": 0.28},
+    )
+
+    ax_ch, ax_wh = axes3[0], axes3[1]
+
+    # ── [0,0] CORA climatological Hovmöller ───────────────────────────────
+    if has_cora_dp:
+
+        cora_plot = cora_dp.dropna(
+            subset=["time", "depth", "TEMP"]
+        ).copy()
+
+        cora_plot["month"] = cora_plot["time"].dt.month
+
+        # optional depth binning
+        depth_bin = 10
+
+        cora_plot["DEPTH_BIN"] = (
+            np.round(cora_plot["depth"] / depth_bin) * depth_bin
+        )
+
+        cora_monthly = (
+            cora_plot
+            .groupby(["month", "DEPTH_BIN"])["TEMP"]
+            .mean()
+            .reset_index()
+        )
+
+        if not cora_monthly.empty:
+
+            hov_c = cora_monthly.pivot(
+                index="DEPTH_BIN",
+                columns="month",
+                values="TEMP"
+            )
+
+            hov_c = hov_c.sort_index()
+
+            Xc = hov_c.columns
+            Yc = hov_c.index
+            Zc = hov_c.values
+
+            cf_c = ax_ch.contourf(
+                Xc,
+                Yc,
+                Zc,
+                levels=30,
+                cmap="rainbow",
+                extend="both"
+            )
+
+            cb_c = fig3.colorbar(cf_c, ax=ax_ch, pad=0.02)
+            cb_c.set_label("Temperature (°C)", fontsize=8)
+
+            ax_ch.contour(
+                Xc,
+                Yc,
+                Zc,
+                levels=15,
+                colors="k",
+                linewidths=0.25,
+                alpha=0.35
+            )
+
+        else:
+            _blank(ax_ch, "No CORA climatology available")
+
+        ax_ch.set_xticks(range(1, 13))
+        ax_ch.set_xticklabels(MONTH_LABELS, fontsize=8)
+
+        ax_ch.set_xlabel("Month")
+        ax_ch.set_ylabel("Depth (m)")
+
+        ax_ch.invert_yaxis()
+        ax_ch.set_ylim(bottom=max_depth, top=0)
+
+        ax_ch.set_title(
+            f"CORA Monthly Climatological Hovmöller\n"
+            f"({rlat:.4f}°N, {rlon:.4f}°E)",
+            fontsize=10
+        )
+
+        ax_ch.grid(False)
+
+    else:
+        _blank(ax_ch, "CORA depth data not available")
+
+    # ── [0,1] WOD climatological Hovmöller ────────────────────────────────
+    if has_wod_dp:
+
+        wod_plot = wod_raw[wod_raw["DEPTH"] <= max_depth].copy()
+
+        wod_plot["time"] = pd.to_datetime(
+            wod_plot["TIME"],
+            errors="coerce"
+        )
+
+        wod_plot = wod_plot.dropna(
+            subset=["time", "DEPTH", "TEMPERATURE"]
+        )
+
+        wod_plot["month"] = wod_plot["time"].dt.month
+
+        # optional depth binning
+        depth_bin = 10
+
+        wod_plot["DEPTH_BIN"] = (
+            np.round(wod_plot["DEPTH"] / depth_bin) * depth_bin
+        )
+
+        wod_monthly = (
+            wod_plot
+            .groupby(["month", "DEPTH_BIN"])["TEMPERATURE"]
+            .mean()
+            .reset_index()
+        )
+
+        if not wod_monthly.empty:
+
+            hov_w = wod_monthly.pivot(
+                index="DEPTH_BIN",
+                columns="month",
+                values="TEMPERATURE"
+            )
+
+            hov_w = hov_w.sort_index()
+
+            Xw = hov_w.columns
+            Yw = hov_w.index
+            Zw = hov_w.values
+
+            cf_w = ax_wh.contourf(
+                Xw,
+                Yw,
+                Zw,
+                levels=30,
+                cmap="rainbow",
+                extend="both"
+            )
+
+            cb_w = fig3.colorbar(cf_w, ax=ax_wh, pad=0.02)
+            cb_w.set_label("Temperature (°C)", fontsize=8)
+
+            ax_wh.contour(
+                Xw,
+                Yw,
+                Zw,
+                levels=15,
+                colors="k",
+                linewidths=0.25,
+                alpha=0.35
+            )
+
+        else:
+            _blank(ax_wh, "No WOD climatology available")
+
+        ax_wh.set_xticks(range(1, 13))
+        ax_wh.set_xticklabels(MONTH_LABELS, fontsize=8)
+
+        ax_wh.set_xlabel("Month")
+        ax_wh.set_ylabel("Depth (m)")
+
+        ax_wh.invert_yaxis()
+        ax_wh.set_ylim(bottom=max_depth, top=0)
+
+        ax_wh.set_title(
+            f"WOD Monthly Climatological Hovmöller\n"
+            f"({rlat:.4f}°N, {rlon:.4f}°E)",
+            fontsize=10
+        )
+
+        ax_wh.grid(False)
+
+    else:
+        _blank(ax_wh, "WOD data not available")
+
+    st.pyplot(fig3)
+    plt.close(fig3)
+
     # ── Footer ────────────────────────────────────────────────────────────────
     st.divider()
     st.markdown(
