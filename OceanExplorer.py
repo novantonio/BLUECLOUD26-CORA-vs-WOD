@@ -1389,7 +1389,7 @@ if "results" in st.session_state:
               .groupby("month")["TEMP"]
               .agg(["mean", "std", "min", "max"])
               .round(2)
-              )
+          )
 
           cora_clim.index = [
               "Jan", "Feb", "Mar", "Apr",
