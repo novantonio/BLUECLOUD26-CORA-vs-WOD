@@ -1380,7 +1380,8 @@ if "results" in st.session_state:
   # ===============================================================
   # CORA monthly climatology
   # ===============================================================
-     if cora_surf is not None and not cora_surf.empty:
+    if cora_surf is not None and not cora_surf.empty:
+       
          cora_tab = cora_surf.copy()
          cora_tab["month"] = cora_tab["time"].dt.month
          cora_clim = (
