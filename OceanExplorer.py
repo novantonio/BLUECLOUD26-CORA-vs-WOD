@@ -1,3 +1,4 @@
+"""
 ocean_explorer.py
 ─────────────────
 CS-MACH1 — Ocean Temperature Climate Explorer
