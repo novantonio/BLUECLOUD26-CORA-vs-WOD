@@ -1,6 +1,6 @@
 """
 OceanExplorer_TS.py
-Versione corretta + Salinity + Hovmöller diagrams
+Versione corretta con mappa funzionante + Salinity + Hovmöller
 """
 
 from __future__ import annotations
@@ -10,7 +10,6 @@ import warnings
 from datetime import datetime
 
 import folium
-import matplotlib.cm as cm
 import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
@@ -25,7 +24,7 @@ st.set_page_config(page_title="CS-MACH1 Ocean Explorer", page_icon="🌊", layou
 
 st.markdown("""
 <style>
-.main-title {font-size:2.2rem; font-weight:800; color:#00A6D6;}
+.main-title {font-size:2.2rem; font-weight:800; color:#00A6D6; letter-spacing:-0.5px;}
 .section-hdr {font-size:1.3rem; font-weight:700; color:#00A6D6; border-bottom:2px solid #00A6D6; padding-bottom:6px; margin:1.5rem 0 0.8rem 0;}
 </style>
 """, unsafe_allow_html=True)
@@ -42,10 +41,10 @@ CORA_TEMP_DEPTH = "https://erddap.emodnet-physics.eu/erddap/griddap/INSITU_GLO_P
 CORA_PSAL_SURF = "https://erddap.emodnet-physics.eu/erddap/griddap/INSITU_GLO_PHY_TS_OA_MY_013_052_PSAL.csv?PSAL%5B(1990-01-01T00:00:00Z):1:(2023-06-15T00:00:00Z)%5D%5B(1.0):1:(1)%5D%5B({lat}):1:({lat})%5D%5B({lon}):1:({lon})%5D"
 CORA_PSAL_DEPTH = "https://erddap.emodnet-physics.eu/erddap/griddap/INSITU_GLO_PHY_TS_OA_MY_013_052_PSAL.csv?PSAL%5B(1990-01-01T00:00:00Z):1:(2023-06-15T00:00:00Z)%5D%5B(1.0):1:({depth})%5D%5B({lat}):1:({lat})%5D%5B({lon}):1:({lon})%5D"
 
-# ── Helpers ───────────────────────────────────────────────────────────────────
+# ── Data fetchers ─────────────────────────────────────────────────────────────
 def _normalize_cora(df: pd.DataFrame, var: str) -> pd.DataFrame:
     df.columns = [c.strip() for c in df.columns]
-    for possible in [var, var.upper(), "SEA_WATER_TEMPERATURE", "SEA_WATER_SALINITY"]:
+    for possible in [var, var.upper(), "SEA_WATER_TEMPERATURE", "SEA_WATER_SALINITY", "PRACTICAL_SALINITY"]:
         if possible in df.columns:
             if possible != var:
                 df = df.rename(columns={possible: var})
@@ -61,12 +60,12 @@ def _normalize_cora(df: pd.DataFrame, var: str) -> pd.DataFrame:
 def fetch_wod_all(lat: float, lon: float):
     try:
         from beacon_api import Client
-        client = Client("https://beacon-wod.maris.nl",proxy_headers={"User-Agent": "my-app/1.0 (antonio.novellino@dedagroup.it)"})
+        client = Client("https://beacon-wod.maris.nl")
         qb = client.query()
-        qb.add_select_column("Temperature", "TEMPERATURE")
-        qb.add_select_column("Salinity", "PSAL")
-        qb.add_select_column("z", "DEPTH")
-        qb.add_select_column("time", "TIME")
+        qb.add_select_column("Temperature", alias="TEMPERATURE")
+        qb.add_select_column("Salinity", alias="PSAL")
+        qb.add_select_column("z", alias="DEPTH")
+        qb.add_select_column("time", alias="TIME")
         raw = qb.to_pandas_dataframe()
         for c in ["TEMPERATURE", "PSAL", "DEPTH"]:
             raw[c] = pd.to_numeric(raw[c], errors="coerce")
@@ -114,7 +113,9 @@ def fetch_cora_depth(lat: float, lon: float, max_depth: float, is_salinity=False
 # ── Plot functions ────────────────────────────────────────────────────────────
 def plot_monthly(df, var, title, color="steelblue"):
     if df is None or df.empty:
-        fig, ax = plt.subplots(); ax.text(0.5,0.5,"No data"); return fig
+        fig, ax = plt.subplots(figsize=(8,5))
+        ax.text(0.5,0.5,"No data", ha="center", va="center")
+        return fig
     df = df.copy()
     df["m"] = df["time"].dt.month
     monthly = df.groupby("m")[var].agg(["mean","std"]).reset_index()
@@ -148,33 +149,26 @@ def plot_depth_profile(df, var, max_depth, title, color="steelblue"):
     return fig
 
 
-def plot_hovmoller(df, var, max_depth, title, is_cora=True):
-    """Hovmöller diagram (month vs depth)"""
+def plot_hovmoller(df, var, max_depth, title):
     fig, ax = plt.subplots(figsize=(10, 6))
     if df is None or df.empty:
-        ax.text(0.5, 0.5, "No data for Hovmöller", ha="center", va="center")
-        fig.tight_layout()
+        ax.text(0.5, 0.5, "No data", ha="center", va="center")
         return fig
-
-    df_plot = df.copy()
-    if "depth" not in df_plot.columns and "DEPTH" in df_plot.columns:
-        df_plot = df_plot.rename(columns={"DEPTH": "depth"})
-    if "time" not in df_plot.columns and "TIME" in df_plot.columns:
-        df_plot["time"] = pd.to_datetime(df_plot["TIME"])
-
-    df_plot = df_plot[df_plot["depth"] <= max_depth].dropna(subset=["time", "depth", var])
-    df_plot["month"] = df_plot["time"].dt.month
-    depth_bin = 10
-    df_plot["DEPTH_BIN"] = np.round(df_plot["depth"] / depth_bin) * depth_bin
-
-    monthly = df_plot.groupby(["month", "DEPTH_BIN"])[var].mean().reset_index()
+    dfp = df.copy()
+    if "DEPTH" in dfp.columns:
+        dfp = dfp.rename(columns={"DEPTH": "depth"})
+    if "TIME" in dfp.columns:
+        dfp["time"] = pd.to_datetime(dfp["TIME"])
+    dfp = dfp[dfp["depth"] <= max_depth].dropna(subset=["time", "depth", var])
+    dfp["month"] = dfp["time"].dt.month
+    dfp["DEPTH_BIN"] = np.round(dfp["depth"] / 10) * 10
+    monthly = dfp.groupby(["month", "DEPTH_BIN"])[var].mean().reset_index()
     if monthly.empty:
-        ax.text(0.5, 0.5, "Insufficient data", ha="center", va="center")
+        ax.text(0.5,0.5,"Insufficient data", ha="center")
         return fig
-
     hov = monthly.pivot(index="DEPTH_BIN", columns="month", values=var).sort_index()
     cf = ax.contourf(hov.columns, hov.index, hov.values, levels=30, cmap="RdYlBu_r", extend="both")
-    ax.contour(hov.columns, hov.index, hov.values, levels=10, colors="k", linewidths=0.3, alpha=0.4)
+    ax.contour(hov.columns, hov.index, hov.values, levels=10, colors="k", linewidths=0.3)
     fig.colorbar(cf, ax=ax, label=var)
     ax.set_xticks(range(1,13))
     ax.set_xticklabels(MONTH_LABELS)
@@ -186,35 +180,68 @@ def plot_hovmoller(df, var, max_depth, title, is_cora=True):
     return fig
 
 
-# ── UI ────────────────────────────────────────────────────────────────────────
+# ── Sidebar + Mappa (presa dall'originale) ────────────────────────────────────
 with st.sidebar:
     st.markdown("### 📍 Location")
-    lat = st.number_input("Latitude (°N)", -90.0, 90.0, DEFAULT_LAT, step=0.01, format="%.4f")
-    lon = st.number_input("Longitude (°E)", -180.0, 180.0, DEFAULT_LON, step=0.01, format="%.4f")
-    max_depth = st.slider("Max depth (m)", 10, 5000, 300, step=10)
+    _lat_key = f"lat_{st.session_state.get('sel_lat', DEFAULT_LAT)}"
+    _lon_key = f"lon_{st.session_state.get('sel_lon', DEFAULT_LON)}"
+    lat_in = st.number_input("Latitude (°N)", -90.0, 90.0,
+                             value=st.session_state.get("sel_lat", DEFAULT_LAT),
+                             step=0.01, format="%.4f", key=_lat_key)
+    lon_in = st.number_input("Longitude (°E)", -180.0, 180.0,
+                             value=st.session_state.get("sel_lon", DEFAULT_LON),
+                             step=0.01, format="%.4f", key=_lon_key)
+    st.divider()
+    max_depth = st.slider("Max depth (m)", 10, 5000, 300, step=10, key="depth_slider")
     run_btn = st.button("▶️ Run Analysis", type="primary", use_container_width=True)
 
-# Mappa
-m = folium.Map(location=[lat, lon], zoom_start=6, tiles="CartoDB positron")
-folium.Marker([lat, lon]).add_to(m)
-map_data = st_folium(m, width=700, height=420, returned_objects=["last_clicked"])
+# ── Mappa interattiva (blocco originale corretto) ─────────────────────────────
+st.markdown("<div class='section-hdr'>🗺️ Select Point on Map</div>", unsafe_allow_html=True)
 
-if map_data and map_data.get("last_clicked"):
-    cl = map_data["last_clicked"]
-    st.session_state.lat = round(cl["lat"],4)
-    st.session_state.lon = round(cl["lng"],4)
-    st.rerun()
+center_lat = st.session_state.get("sel_lat", DEFAULT_LAT)
+center_lon = st.session_state.get("sel_lon", DEFAULT_LON)
+
+m = folium.Map(location=[center_lat, center_lon], zoom_start=5, tiles=None)
+
+folium.TileLayer("CartoDB positron", name="CartoDB Positron").add_to(m)
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}",
+    attr="Esri", name="Esri Ocean"
+).add_to(m)
+
+folium.Marker(
+    location=[center_lat, center_lon],
+    tooltip=f"Selected: {center_lat:.4f}°N, {center_lon:.4f}°E",
+    icon=folium.Icon(color="blue", icon="tint")
+).add_to(m)
+
+map_result = st_folium(m, use_container_width=True, height=420, returned_objects=["last_clicked"])
+
+if map_result and map_result.get("last_clicked"):
+    clicked = map_result["last_clicked"]
+    new_lat = round(clicked["lat"], 4)
+    new_lon = round(clicked["lng"], 4)
+    if (new_lat != st.session_state.get("sel_lat") or new_lon != st.session_state.get("sel_lon")):
+        st.session_state["sel_lat"] = new_lat
+        st.session_state["sel_lon"] = new_lon
+        st.rerun()
+
+latitude = st.session_state.get("sel_lat", lat_in)
+longitude = st.session_state.get("sel_lon", lon_in)
+
+st.info(f"📍 **Point:** {latitude:.4f}°N, {longitude:.4f}°E  · Max depth: **{max_depth} m**")
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
 if run_btn or st.session_state.get("results"):
     if run_btn:
-        with st.spinner("Downloading data..."):
+        with st.spinner("Fetching data from CORA..."):
             res = {
-                "cora_t_surf": fetch_cora_surface(lat, lon, False),
-                "cora_s_surf": fetch_cora_surface(lat, lon, True),
-                "cora_t_dep": fetch_cora_depth(lat, lon, max_depth, False),
-                "cora_s_dep": fetch_cora_depth(lat, lon, max_depth, True),
-                "lat": lat, "lon": lon
+                "cora_t_surf": fetch_cora_surface(latitude, longitude, False),
+                "cora_s_surf": fetch_cora_surface(latitude, longitude, True),
+                "cora_t_dep": fetch_cora_depth(latitude, longitude, max_depth, False),
+                "cora_s_dep": fetch_cora_depth(latitude, longitude, max_depth, True),
+                "lat": latitude,
+                "lon": longitude
             }
             st.session_state.results = res
 
@@ -224,20 +251,20 @@ if run_btn or st.session_state.get("results"):
     st.markdown("<div class='section-hdr'>🌡️ TEMPERATURE</div>", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
-        st.pyplot(plot_monthly(res["cora_t_surf"], "TEMP", "CORA Temperature Monthly Mean"))
-        st.pyplot(plot_hovmoller(res["cora_t_dep"], "TEMP", max_depth, "CORA Temperature Hovmöller", True))
+        st.pyplot(plot_monthly(res["cora_t_surf"], "TEMP", "CORA Temperature Monthly"))
+        st.pyplot(plot_hovmoller(res["cora_t_dep"], "TEMP", max_depth, "CORA Temperature Hovmöller"))
     with c2:
-        st.pyplot(plot_depth_profile(res["cora_t_dep"], "TEMP", max_depth, "CORA Temperature Depth Profile"))
+        st.pyplot(plot_depth_profile(res["cora_t_dep"], "TEMP", max_depth, "CORA Temp Depth Profile"))
 
     # Salinity
-    st.markdown("<div class='section-hdr'>🌊 SALINITY (PSAL)</div>", unsafe_allow_html=True)
+    st.markdown("<div class='section-hdr'>🌊 SALINITY</div>", unsafe_allow_html=True)
     c1, c2 = st.columns(2)
     with c1:
-        st.pyplot(plot_monthly(res["cora_s_surf"], "PSAL", "CORA Salinity Monthly Mean", "teal"))
-        st.pyplot(plot_hovmoller(res["cora_s_dep"], "PSAL", max_depth, "CORA Salinity Hovmöller", True))
+        st.pyplot(plot_monthly(res["cora_s_surf"], "PSAL", "CORA Salinity Monthly", "teal"))
+        st.pyplot(plot_hovmoller(res["cora_s_dep"], "PSAL", max_depth, "CORA Salinity Hovmöller"))
     with c2:
         st.pyplot(plot_depth_profile(res["cora_s_dep"], "PSAL", max_depth, "CORA Salinity Depth Profile", "teal"))
 
-    st.success("✅ Analisi completata")
+    st.success("Analysis completed!")
 
-st.caption("CORA (EMODnet) + WOD")
+st.caption("CORA (EMODnet Physics) • WOD")
