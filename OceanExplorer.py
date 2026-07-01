@@ -187,26 +187,164 @@ def plot_depth_profile_psal(cora_dp, max_depth, lat, lon):
     return fig
 
 
-# ── Sidebar & Map ─────────────────────────────────────────────────────────────
+# ── Sidebar controls ──────────────────────────────────────────────────────────
+
 with st.sidebar:
     st.markdown("### 📍 Location")
-    lat = st.number_input("Latitude (°N)", -90.0, 90.0, DEFAULT_LAT, step=0.01, format="%.4f", key="lat_input")
-    lon = st.number_input("Longitude (°E)", -180.0, 180.0, DEFAULT_LON, step=0.01, format="%.4f", key="lon_input")
+
+    # FIX: dynamic key forces widget recreation when map is clicked,
+    # so the number_input always shows the updated coordinates.
+    _lat_key = f"lat_input_{st.session_state.get('sel_lat', DEFAULT_LAT)}"
+    _lon_key = f"lon_input_{st.session_state.get('sel_lon', DEFAULT_LON)}"
+
+    lat_in = st.number_input(
+        "Latitude (°N)",  min_value=-90.0, max_value=90.0,
+        value=st.session_state.get("sel_lat", DEFAULT_LAT),
+        step=0.01, format="%.4f",
+        key=_lat_key,
+    )
+    lon_in = st.number_input(
+        "Longitude (°E)", min_value=-180.0, max_value=180.0,
+        value=st.session_state.get("sel_lon", DEFAULT_LON),
+        step=0.01, format="%.4f",
+        key=_lon_key,
+    )
+
     st.divider()
-    max_depth = st.slider("Max depth (m)", 10, 5000, 200, step=10, key="depth_slider")
+    st.markdown("### ⚙️ Parameters")
+
+    max_depth = st.slider(
+        "Max depth (m)", min_value=10, max_value=5000,
+        value=st.session_state.get("last_depth", 200),
+        step=10, key="depth_slider",
+    )
+
+    st.divider()
     run_btn = st.button("▶️ Run Analysis", type="primary", use_container_width=True)
 
-# Map
-m = folium.Map(location=[lat, lon], zoom_start=6)
-folium.TileLayer("CartoDB positron").add_to(m)
-folium.Marker([lat, lon], tooltip=f"{lat:.4f}, {lon:.4f}").add_to(m)
-map_data = st_folium(m, width=700, height=450, returned_objects=["last_clicked"])
+    if st.button("🧹 Reset", use_container_width=True):
+        for k in ["sel_lat", "sel_lon", "results", "last_depth"]:
+            st.session_state.pop(k, None)
+        st.rerun()
 
-if map_data and map_data.get("last_clicked"):
-    clicked = map_data["last_clicked"]
-    st.session_state.lat_input = round(clicked["lat"], 4)
-    st.session_state.lon_input = round(clicked["lng"], 4)
-    st.rerun()
+    st.divider()
+    st.caption(
+        "Data sources\n"
+        "• **CORA**: EMODnet-Physics ERDDAP (1990–2023)\n"
+        "• **WOD**: Beacon API / MARIS (1970–2023)\n"
+        "• WOD search box: ±0.1° around selected point\n\n"
+        "**Depth slider** reactively updates\n"
+        "the WOD scatter and CORA depth profile\n"
+        "without re-running the full analysis."
+    )
+
+
+# ── Map ───────────────────────────────────────────────────────────────────────
+
+st.markdown("<div class='section-hdr'>🗺️ Select a Point on the Map</div>",
+            unsafe_allow_html=True)
+st.caption(
+    "Click anywhere on the ocean to set the analysis location, "
+    "or type coordinates directly in the sidebar."
+)
+
+center_lat = st.session_state.get("sel_lat", DEFAULT_LAT)
+center_lon = st.session_state.get("sel_lon", DEFAULT_LON)
+
+m = folium.Map(location=[center_lat, center_lon], zoom_start=5, tiles=None)
+
+folium.TileLayer(
+    tiles="CartoDB positron", name="CartoDB Positron",
+    overlay=False, control=True, show=True,
+).add_to(m)
+
+folium.TileLayer(
+    tiles="https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}",
+    attr="Esri", name="Esri Ocean", overlay=False, control=True,
+).add_to(m)
+
+folium.TileLayer(
+    tiles="https://tiles.emodnet-bathymetry.eu/wmts/1.0.0/mean_multicolour/default/web_mercator/{z}/{y}/{x}.png",
+    attr='&copy; <a href="https://www.emodnet-bathymetry.eu/" target="_blank">EMODnet Bathymetry</a>',
+    name="EMODnet Bathymetry (mean depth)",
+    overlay=False, control=True, show=False, opacity=0.85,
+).add_to(m)
+
+folium.TileLayer(
+    tiles="https://tiles.emodnet-bathymetry.eu/wmts/1.0.0/mean_rainbowcolour/default/web_mercator/{z}/{y}/{x}.png",
+    attr='&copy; <a href="https://www.emodnet-bathymetry.eu/" target="_blank">EMODnet Bathymetry</a>',
+    name="EMODnet Bathymetry (rainbow)",
+    overlay=False, control=True, show=False, opacity=0.85,
+).add_to(m)
+
+folium.WmsTileLayer(
+    url="https://ows.emodnet-bathymetry.eu/wms",
+    layers="emodnet:contours", fmt="image/png", transparent=True, version="1.3.0",
+    attr='&copy; <a href="https://www.emodnet-bathymetry.eu/" target="_blank">EMODnet Bathymetry contours</a>',
+    name="Bathymetric contours (EMODnet)",
+    overlay=True, control=True, show=True, opacity=0.7,
+).add_to(m)
+
+folium.WmsTileLayer(
+    url="https://ows.emodnet-bathymetry.eu/wms",
+    layers="emodnet:mean_multicolour", fmt="image/png", transparent=True, version="1.3.0",
+    attr='&copy; <a href="https://www.emodnet-bathymetry.eu/" target="_blank">EMODnet Bathymetry DTM</a>',
+    name="Mean depth DTM (EMODnet WMS)",
+    overlay=True, control=True, show=False, opacity=0.6,
+).add_to(m)
+
+folium.Marker(
+    location=[center_lat, center_lon],
+    tooltip=f"Selected: {center_lat:.4f}°N, {center_lon:.4f}°E",
+    icon=folium.Icon(color="blue", icon="tint", prefix="fa"),
+).add_to(m)
+
+folium.Rectangle(
+    bounds=[[center_lat - 0.1, center_lon - 0.1],
+            [center_lat + 0.1, center_lon + 0.1]],
+    color="#00A6D6", weight=1.5, fill=True, fill_opacity=0.08,
+    tooltip="WOD search box (±0.1°)",
+).add_to(m)
+
+folium.LayerControl().add_to(m)
+
+# FIX: use_container_width=True instead of width="100%" (string not accepted)
+map_result = st_folium(m, use_container_width=True, height=420,
+                       returned_objects=["last_clicked"])
+
+if map_result and map_result.get("last_clicked"):
+    clicked = map_result["last_clicked"]
+    new_lat = round(clicked["lat"], 4)
+    new_lon = round(clicked["lng"], 4)
+    if (new_lat != st.session_state.get("sel_lat")
+            or new_lon != st.session_state.get("sel_lon")):
+        st.session_state["sel_lat"] = new_lat
+        st.session_state["sel_lon"] = new_lon
+        st.rerun()
+
+# FIX: always read from session_state so map clicks propagate to analysis
+latitude  = st.session_state.get("sel_lat", DEFAULT_LAT)
+longitude = st.session_state.get("sel_lon", DEFAULT_LON)
+
+st.info(
+    f"📍 **Analysis point:** {latitude:.4f}°N, {longitude:.4f}°E  "
+    f"· Max depth: **{max_depth} m**"
+)
+
+# ── Reactive depth update ─────────────────────────────────────────────────────
+
+if (
+    "results" in st.session_state
+    and st.session_state.get("last_depth") != max_depth
+):
+    res = st.session_state["results"]
+    with st.spinner(f"Updating depth profiles to {max_depth} m…"):
+        res["cora_dp"] = fetch_cora_depth_profile(
+            res["lat"], res["lon"], float(max_depth)
+        )
+    st.session_state["results"]    = res
+    st.session_state["last_depth"] = max_depth
+
 
 # ── Analysis ──────────────────────────────────────────────────────────────────
 if run_btn or st.session_state.get("results"):
