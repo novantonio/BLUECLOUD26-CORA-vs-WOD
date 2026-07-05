@@ -1,10 +1,10 @@
 """
 cs_mach1_theme.py
 -----------------
-CS-MACH1 branding & Streamlit page-setup helpers.
-Import this module at the top of any CS-MACH1 Streamlit app:
+branding & Streamlit page-setup helpers.
+Import this module at the top of any Streamlit app:
 
-    from cs_mach1_theme import apply_cs_mach1_theme, cs_mach1_footer
+    from my_theme import my_mach1_theme, cs_mach1_footer
 """
 
 import streamlit as st
@@ -62,11 +62,11 @@ _CSS = f"""
 # ── Public helpers ────────────────────────────────────────────────────────────
 
 def apply_cs_mach1_theme(
-    page_title: str = "CS-MACH1",
+    page_title: str = "Ocean Temperature Climatology Discovery Tool",
     page_icon: str = "logo.png",
-    main_title: str = "🌊 CS-MACH1",
-    subtitle: str = "Ocean temperature monitoring platform",
-    logo_path: str = "logo.png",
+    main_title: str = "🌊 ",
+    subtitle: str = "Discover Temperature in the water column",
+    #logo_path: str = "logo.png",
     logo_width: int = 250,
     layout: str = "wide",
 ) -> None:
@@ -110,8 +110,8 @@ def apply_cs_mach1_theme(
     )
 
 
-def cs_mach1_footer(text: str = "CS-MACH1 Project • Ocean Temperature Monitoring Platform") -> None:
-    """Render the standard CS-MACH1 horizontal-rule + footer."""
+def cs_mach1_footer(text: str = " • Ocean Temperature Climatology Discovery Tool • ") -> None:
+    
     st.markdown("---")
     st.markdown(
         f"<div class='cs-footer'>{text}</div>",
